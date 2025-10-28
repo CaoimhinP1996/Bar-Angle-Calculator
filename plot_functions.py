@@ -1,13 +1,10 @@
-import astropy.units as u # type: ignore
 import pandas as pd # type: ignore
 import matplotlib.pyplot as plt # type: ignore
 import numpy as np
-import pytz # type: ignore
-from astropy.stats import sigma_clip # type: ignore
 import scipy.optimize as spopt # type: ignore
 import os
 from pathlib import Path
-import fit_functions_copy2 as fit_functions
+import fitting_routines as fit_functions
 from bar_distance_analytic_model import compute_bar_distance
 
 def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=None): # plotting routines
@@ -22,13 +19,13 @@ def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=No
     cbc = redclump["cbc"]
     mguess = redclump["mguess"]
     cguess = redclump["cguess"]
-    E,F,rczp,zpNrc,szprc = parallax["zppar"]
+    E,F,rcz,zNrc,szrc = parallax["zpar"]
     H,I,rcp,pNrc,sprc = parallax["ppar"]
-    zphist = parallax["zphist"]
+    zhist = parallax["zhist"]
     phist = parallax["phist"]
-    zpbc = parallax["zpbc"]
+    zbc = parallax["zbc"]
     pbc = parallax["pbc"]
-    zpguess = parallax["zpguess"]
+    zguess = parallax["zguess"]
     pguess = parallax["pguess"]
     prezp = parallax["pre-zp pre-fit dataframe"]
     
@@ -95,35 +92,36 @@ def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=No
     ax.set_ylabel('G')
     ax.set_ylim(20.5,14)
     ax.set_xlim(.5,4)
+    
     ax.set_title('1\u03C3 Color-Magnitude Selection')
 
     # parallax distribution of final cut w/ zero point correction
     ax = fig.add_subplot(3,3,8)
-    ax.errorbar(zpbc,zphist,yerr=np.sqrt(zphist),fmt='o')
-    ZP = np.linspace(-1,1,num=200)
-    NZP = fit_functions.zpcut(ZP,E,F,rczp,zpNrc,szprc)
-    ax.plot(ZP,NZP,label='Fitted')
-    NZP_init = fit_functions.zpcut(ZP,*zpguess)
-    ax.plot(ZP,NZP_init, label = 'Guess')
-    ax.axvline(rczp, color ='k', label= 'zppeak')
-    ax.axvline(rczp+szprc, color ='gray', linestyle = '--')
-    ax.axvline(rczp-szprc, color ='gray', linestyle = '--')
+    ax.errorbar(zbc,zhist,yerr=np.sqrt(zhist),fmt='o')
+    Z = np.linspace(-1,1,num=200)
+    NZ = fit_functions.rczmodel(Z,E,F,rcz,zNrc,szrc)
+    ax.plot(Z,NZ,label='Fitted')
+    NZ_init = fit_functions.rczmodel(Z,*zguess)
+    ax.plot(Z,NZ_init, label = 'Guess')
+    ax.axvline(rcz, color ='k', label= 'zppeak')
+    ax.axvline(rcz+szrc, color ='gray', linestyle = '--')
+    ax.axvline(rcz-szrc, color ='gray', linestyle = '--')
     ax.legend()
-    ax.set_title('Parallax Histogram w/ Zero Point')
+    ax.set_title('Parallax Histogram w/ Zero Point Correction')
 
     # parallax distribution of final cut w/o zero point correction
     ax = fig.add_subplot(3,3,9)
     ax.errorbar(pbc,phist,yerr=np.sqrt(phist),fmt='o')
     P = np.linspace(-1,1,num=200)
-    NP = fit_functions.pcut(P,H,I,rcp,pNrc,sprc)
+    NP = fit_functions.rcpmodel(P,H,I,rcp,pNrc,sprc)
     ax.plot(P,NP,label='Fitted')
-    NP_init = fit_functions.pcut(P,*pguess)
+    NP_init = fit_functions.rcpmodel(P,*pguess)
     ax.plot(P,NP_init, label = 'Guess')
     ax.axvline(rcp, color ='k', label= 'ppeak')
     ax.axvline(rcp+sprc, color ='gray', linestyle = '--')
     ax.axvline(rcp-sprc, color ='gray', linestyle = '--')
     ax.legend()
-    ax.set_title('Parallax Histogram w/o Zero Point')
+    ax.set_title('Parallax Histogram w/o Zero Point Correction')
 
 
     plt.tight_layout()
