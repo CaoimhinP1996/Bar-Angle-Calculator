@@ -144,44 +144,53 @@ def zeropoint(redclump): # calculate zero point for each star using individual p
                 df["astrometric_params_solved"])
     return zero_point
 
-def zeropointavg(redclump): # calculate zero point for each star using average parameters
-    df = redclump["fit cut"]
-    clump_average_g_mean_mag = df["phot_g_mean_mag"].mean()*np.ones(df["phot_g_mean_mag"].shape())
-    nu_eff_average_g_mean_mag = df["nu_eff_used_in_astrometry"].mean()*np.ones(df["nu_eff_used_in_astrometry"].shape())
-    pseudocolor_average_g_mean_mag = df["pseudocolour"].mean()*np.ones(df["pseudocolour"].shape())
-    ecl_lat_average_g_mean_mag = df["ecl_lat"].mean()*np.ones(df["ecl_lat"].shape())
-    params_average_g_mean_mag = df["astrometric_params_solved"].mean()*np.ones(df["astrometric_params_solved"].shape())
-    zero_point = zpt.get_zpt(clump_average_g_mean_mag, nu_eff_average_g_mean_mag, pseudocolor_average_g_mean_mag, 
-                ecl_lat_average_g_mean_mag, params_average_g_mean_mag);
-    return zero_point
+#def zeropointavg(redclump): # calculate zero point for each star using average parameters
+    #df = redclump["fit cut"]
+    #df = pd.DataFrame(data=df)
+    #phot = df["phot_g_mean_mag"].shape
+    #nu = df["nu_eff_used_in_astrometry"].shape
+    #pseudo = df["pseudocolour"].shape
+    #ecl = df["ecl_lat"].shape
+    #astro_params = df["astrometric_params_solved"].shape
+    #clump_average_g_mean_mag = np.array([df["phot_g_mean_mag"].mean()*np.ones([phot[0]])])
+    #nu_eff_average_g_mean_mag = np.array([df["nu_eff_used_in_astrometry"].mean()*np.ones([nu[0]])])
+    #pseudocolor_average_g_mean_mag = np.array([df["pseudocolour"].mean()*np.ones([pseudo[0]])])
+    #ecl_lat_average_g_mean_mag = np.array([df["ecl_lat"].mean()*np.ones([ecl[0]])])
+    #params_average_g_mean_mag = np.array([df["astrometric_params_solved"].mean()*np.ones([astro_params[0]])])
+    #zero_point = zpt.get_zpt(clump_average_g_mean_mag, nu_eff_average_g_mean_mag, pseudocolor_average_g_mean_mag, 
+    #            ecl_lat_average_g_mean_mag, df["astrometric_params_solved"]);
+    #return zero_point
 
-def rczmodel(x,E,F,rcz,zNrc,szrc): # function for fitting parallax w/ zero point
-    return E*np.exp(F*(x-rcz)) + \
-           zNrc/(np.sqrt(2*np.pi*szrc**2))*np.exp(-0.5*(x-rcz)**2/szrc**2)
+def rczmodel(x,rcz,zNrc,szrc): # function for fitting parallax w/ zero point
+    return zNrc/(np.sqrt(2*np.pi*szrc**2))*np.exp(-0.5*(x-rcz)**2/szrc**2)
 
-def rcpmodel(x,H,I,rcp,pNrc,sprc): # function for fitting parallax w/ zero point
-    return H*np.exp(I*(x-rcp)) + \
-           pNrc/(np.sqrt(2*np.pi*sprc**2))*np.exp(-0.5*(x-rcp)**2/sprc**2)
+def rcpmodel(x,rcp,pNrc,sprc): # function for fitting parallax w/ zero point
+    return pNrc/(np.sqrt(2*np.pi*sprc**2))*np.exp(-0.5*(x-rcp)**2/sprc**2)
 
 def finalfit(redclump, zero_point): # find peak parallax along sightline from fitting distribution of parallax before 
                                     # and after applying zero point
     prezp = redclump["fit cut"]
+    prezp["zero point"] = zero_point
     postzp = prezp["parallax"] - zero_point
-    zp = {"parallax": postzp, "parallax error": prezp["parallax_error"]}
+    zp = {"parallax": postzp, "parallax error": prezp["parallax_error"], "zero point": zero_point}
     zp = pd.DataFrame(data=zp)
+    clipped = sigma_clip(np.array(prezp["parallax"]), sigma=3, maxiters=5)
+    prezp = prezp[~clipped.mask]
+    clipped = sigma_clip(np.array(zp["parallax"]), sigma=3, maxiters=5)
+    zp = zp[~clipped.mask]
 
     zhist,zbe = np.histogram(zp["parallax"], bins=40)
     zbc = 0.5*(zbe[0:-1]+zbe[1:])
-    zguess = [(zhist[0]+zhist[-1])/2,0.5,0.1,(zhist[0]+zhist[-1])/2,0.1]
+    zguess = [np.mean(zp["parallax"]),np.max(zhist)/np.sqrt(2*np.pi*np.std(zp["parallax"])**2),np.std(zp["parallax"])]
     zpar,zcov = spopt.curve_fit(rczmodel,zbc,zhist,p0=zguess,sigma=np.sqrt(zhist))
 
     phist,pbe = np.histogram(prezp["parallax"], bins=40)
     pbc = 0.5*(pbe[0:-1]+pbe[1:])
-    pguess = [(phist[0]+phist[-1])/2,0.5,0.1,(phist[0]+phist[-1])/2,0.1]
+    pguess = [np.mean(prezp["parallax"]),np.max(phist)/np.sqrt(2*np.pi*np.std(prezp["parallax"])**2),np.std(prezp["parallax"])]
     ppar,pcov = spopt.curve_fit(rcpmodel,pbc,phist,p0=pguess,sigma=np.sqrt(phist))
 
-    E,F,rcz,zNrc,szrc = zpar
-    H,I,rcp,pNrc,sprc = ppar
+    rcz,zNrc,szrc = zpar
+    rcp,pNrc,sprc = ppar
 
     fitzp = (zp.loc[(zp["parallax"]> rcz - szrc) & (zp["parallax"]< rcz + szrc)])
 
@@ -206,7 +215,9 @@ def finalfit(redclump, zero_point): # find peak parallax along sightline from fi
               "zp parallax peak": rcz,
               "prezp parallax peak": rcp,
               "zp parallax error": szrc,
-              "prezp parallax error": sprc}
+              "prezp parallax error": sprc,
+              "mean error w/ zero point": szrc/np.sqrt(len(fitzp["parallax"])),
+              "mean error w/o zero point": sprc/np.sqrt(len(fitprezp["parallax"]))}
     return output
 
 def finalcut(redclump, zero_point): # sigma clip based on parallax to further isolate the bar red clump and find mean parallax
