@@ -4,7 +4,7 @@ import numpy as np
 import scipy.optimize as spopt # type: ignore
 import os
 from pathlib import Path
-import fitting_routines as fit_functions
+import fitting_routines as fit
 from bar_distance_analytic_model import compute_bar_distance
 
 def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=None): # plotting routines
@@ -19,8 +19,8 @@ def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=No
     cbc = redclump["cbc"]
     mguess = redclump["mguess"]
     cguess = redclump["cguess"]
-    E,F,rcz,zNrc,szrc = parallax["zpar"]
-    H,I,rcp,pNrc,sprc = parallax["ppar"]
+    rcz,zNrc,szrc = parallax["zpar"]
+    rcp,pNrc,sprc = parallax["ppar"]
     zhist = parallax["zhist"]
     phist = parallax["phist"]
     zbc = parallax["zbc"]
@@ -28,6 +28,7 @@ def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=No
     zguess = parallax["zguess"]
     pguess = parallax["pguess"]
     prezp = parallax["pre-zp pre-fit dataframe"]
+    zp = parallax["post-zp pre-fit dataframe"]
     
 
     fig = plt.figure(figsize=(15,15))
@@ -60,9 +61,9 @@ def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=No
     ax = fig.add_subplot(3,3,5)
     ax.errorbar(mbc,mhist,yerr=np.sqrt(mhist),fmt='o')
     G = np.linspace(min(initial['phot_g_mean_mag']),max(initial['phot_g_mean_mag']),num=200)
-    NG = fit_functions.rcmmodel(G,A,B,rcmag,mNrc,smrc)
+    NG = fit.rcmmodel(G,A,B,rcmag,mNrc,smrc)
     ax.plot(G,NG,label='Fitted')
-    NG_init = fit_functions.rcmmodel(G,*mguess)
+    NG_init = fit.rcmmodel(G,*mguess)
     ax.plot(G,NG_init, label = 'Guess')
     ax.axvline(rcmag, color ='k', label= 'magpeak')
     ax.axvline(rcmag+smrc, color ='gray', linestyle = '--')
@@ -74,9 +75,9 @@ def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=No
     ax = fig.add_subplot(3,3,6)
     ax.errorbar(cbc,chist,yerr=np.sqrt(chist),fmt='o')
     Col = np.linspace(min(initial['bp_rp']),max(initial['bp_rp']),num=200)
-    NC = fit_functions.rccmodel(Col,C,D,rccol,cNrc,scrc)
+    NC = fit.rccmodel(Col,C,D,rccol,cNrc,scrc)
     ax.plot(Col,NC,label='Fitted')
-    NC_init = fit_functions.rccmodel(Col,*cguess)
+    NC_init = fit.rccmodel(Col,*cguess)
     ax.plot(Col,NC_init, label = 'Guess')
     ax.axvline(rccol, color ='k', label= 'magpeak')
     ax.axvline(rccol+scrc, color ='gray', linestyle = '--')
@@ -87,7 +88,7 @@ def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=No
     # final RC cut plotted over original CMD
     ax = fig.add_subplot(3,3,7)
     ax.scatter(df['bp_rp'],df['phot_g_mean_mag'],s=0.5, alpha = 0.2)
-    ax.scatter(prezp['bp_rp'],prezp['phot_g_mean_mag'],s=0.5, alpha=0.75, c= zero_point, cmap='autumn')
+    ax.scatter(prezp['bp_rp'],prezp['phot_g_mean_mag'],s=0.5, alpha=0.75, c= prezp["zero point"], cmap='autumn')
     ax.set_xlabel('Color')
     ax.set_ylabel('G')
     ax.set_ylim(20.5,14)
@@ -99,13 +100,12 @@ def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=No
     ax = fig.add_subplot(3,3,8)
     ax.errorbar(zbc,zhist,yerr=np.sqrt(zhist),fmt='o')
     Z = np.linspace(-1,1,num=200)
-    NZ = fit_functions.rczmodel(Z,E,F,rcz,zNrc,szrc)
+    NZ = fit.rczmodel(Z,rcz,zNrc,szrc)
     ax.plot(Z,NZ,label='Fitted')
-    NZ_init = fit_functions.rczmodel(Z,*zguess)
-    ax.plot(Z,NZ_init, label = 'Guess')
     ax.axvline(rcz, color ='k', label= 'zppeak')
     ax.axvline(rcz+szrc, color ='gray', linestyle = '--')
     ax.axvline(rcz-szrc, color ='gray', linestyle = '--')
+    ax.set_xlim(-1,1)
     ax.legend()
     ax.set_title('Parallax Histogram w/ Zero Point Correction')
 
@@ -113,13 +113,12 @@ def RedClumpPlot(redclump, parallax, df, zero_point, plotpath=None, l=None, b=No
     ax = fig.add_subplot(3,3,9)
     ax.errorbar(pbc,phist,yerr=np.sqrt(phist),fmt='o')
     P = np.linspace(-1,1,num=200)
-    NP = fit_functions.rcpmodel(P,H,I,rcp,pNrc,sprc)
+    NP = fit.rcpmodel(P,rcp,pNrc,sprc)
     ax.plot(P,NP,label='Fitted')
-    NP_init = fit_functions.rcpmodel(P,*pguess)
-    ax.plot(P,NP_init, label = 'Guess')
     ax.axvline(rcp, color ='k', label= 'ppeak')
     ax.axvline(rcp+sprc, color ='gray', linestyle = '--')
     ax.axvline(rcp-sprc, color ='gray', linestyle = '--')
+    ax.set_xlim(-1,1)
     ax.legend()
     ax.set_title('Parallax Histogram w/o Zero Point Correction')
 
@@ -173,9 +172,9 @@ def RedClumpPlot_break(redclump, df, plotpath=None, l=None, b=None): # plotting 
     ax = fig.add_subplot(2,3,5)
     ax.errorbar(mbc,mhist,yerr=np.sqrt(mhist),fmt='o')
     G = np.linspace(min(initial['phot_g_mean_mag']),max(initial['phot_g_mean_mag']),num=200)
-    NG = fit_functions.rcmmodel(G,A,B,rcmag,mNrc,smrc)
+    NG = fit.rcmmodel(G,A,B,rcmag,mNrc,smrc)
     ax.plot(G,NG,label='Fitted')
-    NG_init = fit_functions.rcmmodel(G,*mguess)
+    NG_init = fit.rcmmodel(G,*mguess)
     ax.plot(G,NG_init, label = 'Guess')
     ax.axvline(rcmag, color ='k', label= 'magpeak')
     ax.axvline(rcmag+smrc, color ='gray', linestyle = '--')
@@ -187,9 +186,9 @@ def RedClumpPlot_break(redclump, df, plotpath=None, l=None, b=None): # plotting 
     ax = fig.add_subplot(2,3,6)
     ax.errorbar(cbc,chist,yerr=np.sqrt(chist),fmt='o')
     Col = np.linspace(min(initial['bp_rp']),max(initial['bp_rp']),num=200)
-    NC = fit_functions.rccmodel(Col,C,D,rccol,cNrc,scrc)
+    NC = fit.rccmodel(Col,C,D,rccol,cNrc,scrc)
     ax.plot(Col,NC,label='Fitted')
-    NC_init = fit_functions.rccmodel(Col,*cguess)
+    NC_init = fit.rccmodel(Col,*cguess)
     ax.plot(Col,NC_init, label = 'Guess')
     ax.axvline(rccol, color ='k', label= 'magpeak')
     ax.axvline(rccol+scrc, color ='gray', linestyle = '--')
@@ -277,7 +276,7 @@ def meanplot(meanplot, Al, b=2.0, plotpath=None):
                 linewidth=2, markersize=4, alpha=0.8)
 
     plt.grid(True, alpha=0.3)
-    plt.legend(fontsize=9, title='Bar Angle')
+    plt.legend(fontsize=9, title='Bar Angle', bbox_to_anchor=(0.97, 1), loc='upper left', borderaxespad=0.)
     
     plt.ylim(0.08,0.20)
 
