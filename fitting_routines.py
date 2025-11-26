@@ -95,7 +95,9 @@ def redclumpfinder_v1(df): # 1D histogram of magnitude and color in the datafram
               "cbc": cbc,
               "cguess": cguess,
               "cpar": cpar,
-              "ccov": ccov,}
+              "ccov": ccov,
+              "mag": rcmag,
+              "color": rccol}
     return output
 
 def redclumpfinder_v2(df): # 1D histogram of magnitude and color in the dataframe to be matched over the fits to check accuracy of fits
@@ -135,7 +137,9 @@ def redclumpfinder_v2(df): # 1D histogram of magnitude and color in the datafram
               "cbc": cbc,
               "cguess": cguess,
               "cpar": cpar,
-              "ccov": ccov,}
+              "ccov": ccov,
+              "mag": rcmag,
+              "color": rccol}
     return output
 
 def zeropoint(redclump): # calculate zero point for each star using individual parameters
@@ -143,23 +147,6 @@ def zeropoint(redclump): # calculate zero point for each star using individual p
     zero_point = zpt.get_zpt(df["phot_g_mean_mag"], df["nu_eff_used_in_astrometry"], df["pseudocolour"], df["ecl_lat"], 
                 df["astrometric_params_solved"])
     return zero_point
-
-#def zeropointavg(redclump): # calculate zero point for each star using average parameters
-    #df = redclump["fit cut"]
-    #df = pd.DataFrame(data=df)
-    #phot = df["phot_g_mean_mag"].shape
-    #nu = df["nu_eff_used_in_astrometry"].shape
-    #pseudo = df["pseudocolour"].shape
-    #ecl = df["ecl_lat"].shape
-    #astro_params = df["astrometric_params_solved"].shape
-    #clump_average_g_mean_mag = np.array([df["phot_g_mean_mag"].mean()*np.ones([phot[0]])])
-    #nu_eff_average_g_mean_mag = np.array([df["nu_eff_used_in_astrometry"].mean()*np.ones([nu[0]])])
-    #pseudocolor_average_g_mean_mag = np.array([df["pseudocolour"].mean()*np.ones([pseudo[0]])])
-    #ecl_lat_average_g_mean_mag = np.array([df["ecl_lat"].mean()*np.ones([ecl[0]])])
-    #params_average_g_mean_mag = np.array([df["astrometric_params_solved"].mean()*np.ones([astro_params[0]])])
-    #zero_point = zpt.get_zpt(clump_average_g_mean_mag, nu_eff_average_g_mean_mag, pseudocolor_average_g_mean_mag, 
-    #            ecl_lat_average_g_mean_mag, df["astrometric_params_solved"]);
-    #return zero_point
 
 def rczmodel(x,rcz,zNrc,szrc): # function for fitting parallax w/ zero point
     return zNrc/(np.sqrt(2*np.pi*szrc**2))*np.exp(-0.5*(x-rcz)**2/szrc**2)
@@ -216,8 +203,8 @@ def finalfit(redclump, zero_point): # find peak parallax along sightline from fi
               "prezp parallax peak": rcp,
               "zp parallax error": szrc,
               "prezp parallax error": sprc,
-              "mean error w/ zero point": szrc/np.sqrt(len(fitzp["parallax"])),
-              "mean error w/o zero point": sprc/np.sqrt(len(fitprezp["parallax"]))}
+              "mean error w/ zero point": szrc/np.sqrt(np.diag(zcov)[0]),
+              "mean error w/o zero point": sprc/np.sqrt(np.diag(pcov)[0])}
     return output
 
 def finalcut(redclump, zero_point): # sigma clip based on parallax to further isolate the bar red clump and find mean parallax
@@ -247,3 +234,4 @@ def finalcut(redclump, zero_point): # sigma clip based on parallax to further is
               "pre-zp parallax mean": prezparmean,
               "pre-zp dataframe": prezp}
     return output
+
