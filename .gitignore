@@ -1,0 +1,17 @@
+# Cache and output files
+__pycache__/
+*.pyc
+*.csv
+*.fits
+*.hdf5
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Large data directories
+longitude_cache/
+TheoreticalBarParallax/
+
+# Large result files
+*.pdf
+*.png
