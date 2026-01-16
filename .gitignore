@@ -14,4 +14,4 @@ TheoreticalBarParallax/
 
 # Large result files
 *.pdf
-*.png
+*.png.DS_Store
