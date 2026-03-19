@@ -1,237 +1,190 @@
-import astropy.units as u # type: ignore
-from zero_point import zpt
-import pandas as pd # type: ignore
-import matplotlib.pyplot as plt # type: ignore
+import pandas as pd
 import numpy as np
-from astropy.stats import sigma_clip # type: ignore
-import scipy.optimize as spopt # type: ignore
+np.set_printoptions(legacy = "1.25")
 import os
 from pathlib import Path
-from sklearn.cluster import KMeans # type: ignore
-zpt.load_tables()
+import fitting_routines as fit
+import plot_functions as plot
+import warnings
+warnings.filterwarnings("ignore") # none of the warnings break anything
 
+#size = [0.2475,0.200,0.1650] # size of sightline FOV
+size = [0.33]
 
-def findrc(df): #automate finding the RC from original CMD using a 2D histogram that locates two maxima, 
-                # then assign the top right maxima as RC
-    # Your 2D data
-    X = np.array([df['bp_rp'],df['phot_g_mean_mag']]).transpose()  # shape (n_samples, 2)
+COLUMNS = ["Latitude", "Long", "Mean Parallax", "Mean Parallax Error", "Parallax Dispersion", 
+            "Number at parallax mean", "Clump 1 Parallax", "Clump 2 Parallax", "Clump 1 Parallax Sigma",
+            "Clump 2 Parallax Sigma", "Number at Clump 1 Parallax Mean", "Number at Clump 2 Parallax Mean",
+            "Mean Magnitude", "Magnitude Dispersion", "Number at Mag mean", 
+            "Mean Color", "Color Dispersion", "Number at color mean", "Count", "Magnitude Distinctness", 
+            "D1Mag Distinctness", "D2Mag Distinctness", "Double Clump width", "Color Distinctness", 
+            "Distance Modulus", "Red Clump Fraction", "Red Clump Width", "Red Clump 1 Width",
+            "Red Clump 2 Width"]
 
-    # Find 2 cluster centers
-    kmeans = KMeans(n_clusters=2, random_state=42, n_init = 2, algorithm = "elkan")
-    labels = kmeans.fit_predict(X)
-    spreads = [(np.std(X[labels==i], axis=0)) for i in range(2)]
-    centers = kmeans.cluster_centers_
-    x1,y1 = centers[0][0],centers[0][1]
-    x2,y2 = centers[1][0],centers[1][1]
-    sx1,sy1 = spreads[0][0],spreads[0][1]
-    sx2,sy2 = spreads[1][0],spreads[1][1]
+for s in size:
+    TotalGood_Single = pd.DataFrame(columns=[COLUMNS])
+    TotalGood_Double = pd.DataFrame(columns=[COLUMNS])
+    TotalBad = pd.DataFrame(columns=[COLUMNS])
 
-    if (y1 < y2): # automates selection of the RC from the two maxima; RC will always be brighter
-        xrc = x1
-        yrc = y1
-        sxrc = sx1
-        syrc = sy1
-    else:
-        xrc = x2
-        yrc = y2
-        sxrc = sx2
-        syrc = sy2
-    return xrc,yrc,sxrc,syrc
+    b = np.arange(-6,5,s)
+    Al = np.arange(-9.9,10,s)
 
-def extractrc_v1(df,xrc,yrc,sxrc,syrc): # make initial cuts from original dataframe using coordinates and spread from histogram
-    df1 = (
-        df.loc[(df['bp_rp']>xrc-0.5*sxrc) & (df['bp_rp']<xrc+sxrc) & (df['phot_g_mean_mag']>yrc-syrc) & (df['phot_g_mean_mag']<yrc+1.4*syrc)]
-    )
-    return df1
+    for i in b: # run functions for sightlines
+        # find folder with csvs
+        dir_name = f'Gaia_Data/b_{i:0.4f}_{s:0.4f}_degrees'
+        os.makedirs(dir_name, exist_ok=True)
+        path = Path(dir_name)
 
-def extractrc_v2(df,xrc,yrc,sxrc,syrc): # make initial cuts from original dataframe using coordinates and spread from histogram
-    df1 = (
-        df.loc[(df['bp_rp']>xrc-0.8*sxrc) & (df['bp_rp']<xrc+1.3*sxrc) & (df['phot_g_mean_mag']>yrc-syrc) 
-               & (df['phot_g_mean_mag']<yrc+1.6*syrc)])
-    return df1
+        #create folders and lists for plots
+        plot_path = f'Plots/Diagnostics/b_{i:0.4f}_diagnostics_test_{s:0.4f}_degrees'
+        os.makedirs(plot_path, exist_ok=True)
+        plotpath = Path(plot_path)
 
-def rcmmodel(x,A,B,rcmag,Nrc,smrc): # function for fitting magnitude according to initial cut
-    return A*np.exp(B*(x-rcmag)) + \
-           Nrc/(np.sqrt(2*np.pi*smrc**2))*np.exp(-0.5*(x-rcmag)**2/smrc**2)
+        Good_Single = pd.DataFrame(columns=[COLUMNS])
+        Good_Double = pd.DataFrame(columns=[COLUMNS])
+        Bad = pd.DataFrame(columns=[COLUMNS])
+        count = 0
+        for l in Al:
+            try:
+                df = pd.read_csv(path / f'l_{l:0.4f}_b_{i:0.4f}.csv') # read in csv
+                df["l"] = df["l"]-360
+                #df = df.loc[(df["b"]<i)&(df["l"]<l)]
+                redclump = fit.redclumpfinder_v1(df) # find the red clump
+                zeropoint = fit.zeropoint(redclump)
+                parallax = fit.parallax(redclump, zeropoint) # sigma clip parallax both before and after applying zero point correction
+                doubleclump = fit.doubleclump_finder_v1(df, redclump)
+                doubleparallax = fit.doublefinalfit(redclump, zeropoint)
+                plot.DRedClumpPlot(redclump, parallax, df, doubleclump, doubleparallax, plotpath=plotpath, l=l, b=i, s=s)
+                #print("Finished fitting", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}')
+                count = count + 1
+            except RuntimeError: # sometimes it will fail to fit due to the post-histogram selection and will crash
+                try:
+                    redclump = fit.redclumpfinder_v2(df) # see if it will fit if we change the spread for the first cut
+                    zeropoint = fit.zeropoint(redclump)
+                    parallax = fit.parallax(redclump, zeropoint)
+                    doubleclump = fit.doubleclump_finder_v2(df, redclump)
+                    doubleparallax = fit.doublefinalfit(redclump, zeropoint)
+                    plot.DRedClumpPlot(redclump, parallax, df, doubleclump, doubleparallax, plotpath=plotpath, l=l, b=i, s=s)
+                    #print("Finished fitting", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}')
+                    count = count + 1
+                except RuntimeError:
+                    #print("Could not fit", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}') # if not, save the fitting cut and 2D histogram for troubleshooting
+                    plot.DRedClumpPlot_runtime(redclump, df, plotpath=plotpath, l=l, b=i, s=s)
+                    continue
+                except KeyError: # usually means it could find a fit, but for some reason could not go beyond plotting the histograms
+                    #print("Key Error for", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}')
+                    plot.DRedClumpPlot_break(redclump, df, doubleclump, plotpath=plotpath, l=l, b=i, s=s)
+                    continue
+                except TypeError: # error with parameters, could not make a fit
+                    #print("Type Error for:", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}')
+                    plot.DRedClumpPlot_type(redclump, df, doubleclump, plotpath=plotpath, l=l, b=i, s=s)
+                    continue
+                except ValueError: # error with parameters, could not make a fit
+                    plot.DRedClumpPlot_break(redclump, df, doubleclump, plotpath=plotpath, l=l, b=i, s=s)
+                    #print("Value Error for:", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}')
+                    continue
+                except NameError:
+                    plot.DRedClumpPlot_break(redclump, df, doubleclump, plotpath=plotpath, l=l, b=i, s=s)
+                    #print("Value Error for:", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}')
+                    continue
+                continue
+            except KeyError: # usually means it could find a fit, but for some reason could not go beyond plotting the histograms
+                #print("Key Error for", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}')
+                plot.DRedClumpPlot_break(redclump, df, doubleclump, plotpath=plotpath, l=l, b=i, s=s)
+                continue
+            except FileNotFoundError: # sometimes the data downloader cannot find a sightline along each latitude and so various
+                                     # sightlines may, incosistently, not be available in a latitude
+              #print("Could not find file", f'l_{l:0.4f}_b_{i:0.4f}')
+              continue
+            except TypeError: # error with parameters, could not make a fit
+                #print("Type Error for:", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}')
+                plot.DRedClumpPlot_type(redclump, df, doubleclump, plotpath=plotpath, l=l, b=i, s=s)
+                continue
+            except ValueError: # error with parameters, could not make a fit
+                plot.DRedClumpPlot_break(redclump, df, doubleclump, plotpath=plotpath, l=l, b=i, s=s)
+                #print("Value Error for:", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}')
+                continue
+            except NameError:
+                plot.DRedClumpPlot_break(redclump, df, doubleclump, plotpath=plotpath, l=l, b=i, s=s)
+                #print("Value Error for:", f'l_{l:0.4f}_b_{i:0.4f}_s_{s:0.4f}')
+                continue
 
-def rccmodel(x,C,D,rccol,Nrc,scrc): # function for fitting color according to initial cut
-    return C*np.exp(D*(x-rccol)) + \
-           Nrc/(np.sqrt(2*np.pi*scrc**2))*np.exp(-0.5*(x-rccol)**2/scrc**2)
+            # do not modify placement of these; concatenation needs to happen after all of the try/except loops or else
+            # the columns can have different lengths causing an error when analyzing
+            if redclump["Magnitude Distinctness"]>1 and redclump["Color Distinctness"]>1 and redclump["Red Clump Width"] < .45 and redclump["Red Clump Width"]>0.29 and np.abs(parallax["parallax sigma"])<0.3 and (doubleclump["peak difference"] > 0.65 or doubleclump["clump 1 distinctness"]<1 or doubleclump["clump 2 distinctness"]<1):
+                fitcut = parallax["dataframe"]
+                Good_Single = pd.concat([pd.DataFrame([[i, l, parallax["parallax peak"], parallax["mean error"], np.abs(parallax["parallax sigma"]),
+                                                parallax["Number at parallax mean"], doubleparallax["parallax peak 1"],
+                                                doubleparallax["parallax peak 2"], doubleparallax["parallax sigma 1"],
+                                                doubleparallax["parallax sigma 2"], doubleparallax["Number at parallax mean 1"],
+                                                doubleparallax["Number at parallax mean 2"], redclump["mag"], redclump["mag sigma"], 
+                                                redclump["Number at mag mean"], redclump["color"], redclump["color sigma"], 
+                                                redclump["Number at color mean"], len(fitcut["phot_g_mean_mag"]), 
+                                                redclump["Magnitude Distinctness"], doubleclump["clump 1 distinctness"],
+                                                doubleclump["clump 2 distinctness"], doubleclump["peak difference"], 
+                                                redclump["Color Distinctness"], 5*np.log10(1/parallax["parallax peak"])-5, 
+                                                redclump["Red Clump Fraction"], redclump["Red Clump Width"],
+                                                doubleclump["Red Clump 1 Width"], doubleclump["Red Clump 2 Width"]]],
+                                                columns=Good_Single.columns), Good_Single], ignore_index=True)
+            
+            if redclump["Magnitude Distinctness"]>1 and redclump["Color Distinctness"]>1 and redclump["Red Clump Width"] < .45 and redclump["Red Clump Width"]>0.29 and np.abs(parallax["parallax sigma"])<0.3 and doubleclump["peak difference"] < 0.65 and doubleclump["clump 1 distinctness"]>1 and doubleclump["clump 2 distinctness"]>1:
+                fitcut = parallax["dataframe"]
+                Good_Double = pd.concat([pd.DataFrame([[i, l, parallax["parallax peak"], parallax["mean error"], np.abs(parallax["parallax sigma"]),
+                                                parallax["Number at parallax mean"], doubleparallax["parallax peak 1"],
+                                                doubleparallax["parallax peak 2"], doubleparallax["parallax sigma 1"],
+                                                doubleparallax["parallax sigma 2"], doubleparallax["Number at parallax mean 1"],
+                                                doubleparallax["Number at parallax mean 2"], redclump["mag"], redclump["mag sigma"], 
+                                                redclump["Number at mag mean"], redclump["color"], redclump["color sigma"], 
+                                                redclump["Number at color mean"], len(fitcut["phot_g_mean_mag"]), 
+                                                redclump["Magnitude Distinctness"], doubleclump["clump 1 distinctness"],
+                                                doubleclump["clump 2 distinctness"], doubleclump["peak difference"], 
+                                                redclump["Color Distinctness"], 5*np.log10(1/parallax["parallax peak"])-5, 
+                                                redclump["Red Clump Fraction"], redclump["Red Clump Width"],
+                                                doubleclump["Red Clump 1 Width"], doubleclump["Red Clump 2 Width"]]],
+                                                columns=Good_Double.columns), Good_Double], ignore_index=True)
 
-def redclumpfinder_v1(df): # 1D histogram of magnitude and color in the dataframe to be matched over the fits to check accuracy of fits
-    xrc,yrc,sxrc,syrc = findrc(df)
+            else:
+                Badfitcut = parallax["dataframe"]
+                Bad = pd.concat([pd.DataFrame([[i, l, parallax["parallax peak"], parallax["mean error"], np.abs(parallax["parallax sigma"]),
+                                                parallax["Number at parallax mean"], doubleparallax["parallax peak 1"],
+                                                doubleparallax["parallax peak 2"], doubleparallax["parallax sigma 1"],
+                                                doubleparallax["parallax sigma 2"], doubleparallax["Number at parallax mean 1"],
+                                                doubleparallax["Number at parallax mean 2"], redclump["mag"], redclump["mag sigma"], 
+                                                redclump["Number at mag mean"], redclump["color"], redclump["color sigma"], 
+                                                redclump["Number at color mean"], len(Badfitcut["phot_g_mean_mag"]), 
+                                                redclump["Magnitude Distinctness"], doubleclump["clump 1 distinctness"],
+                                                doubleclump["clump 2 distinctness"], doubleclump["peak difference"], 
+                                                redclump["Color Distinctness"], 5*np.log10(1/parallax["parallax peak"])-5, 
+                                                redclump["Red Clump Fraction"], redclump["Red Clump Width"],
+                                                doubleclump["Red Clump 1 Width"], doubleclump["Red Clump 2 Width"]]],
+                                                columns=Bad.columns), Bad], ignore_index=True)
+            
+        Good_Single.to_csv(path / f"b_{i:0.4f}_s_{s:0.4f}_good_single_cuts.csv") # save all cuts along a latitude to a csv so you can add missed bad sightlines 
+                                                        # to bad csv
+        Good_Double.to_csv(path / f"b_{i:0.4f}_s_{s:0.4f}_good_double_cuts.csv")
+        Bad.to_csv(path / f"b_{i:0.4f}_s_{s:0.4f}_bad_cuts.csv")
 
-    df1 = extractrc_v1(df,xrc,yrc,sxrc,syrc)
+        TotalGood_Single = pd.concat([TotalGood_Single,Good_Single], ignore_index=True)
+        TotalGood_Double = pd.concat([TotalGood_Double,Good_Double], ignore_index=True)
+        TotalBad  = pd.concat([TotalBad,Bad], ignore_index=True)
 
-    mhist,mbe = np.histogram(df1['phot_g_mean_mag'], bins=40)
-    mbc = 0.5*(mbe[0:-1]+mbe[1:])
-    mguess = [(mhist[0]+mhist[-1])/2,0.5,(np.max(mbc)+np.min(mbc))/2,(mhist[0]+mhist[-1])/2,0.3]
-    mpar,mcov = spopt.curve_fit(rcmmodel,mbc,mhist,p0=mguess,sigma=np.sqrt(mhist))
-
-    chist,cbe = np.histogram(df1['bp_rp'], bins=40)
-    cbc = 0.5*(cbe[0:-1]+cbe[1:])
-    cguess = [(chist[0]+chist[-1])/2,0.5,(np.max(cbc)+np.min(cbc))/2,(chist[0]+chist[-1])/2,0.3]
-    cpar,ccov = spopt.curve_fit(rccmodel,cbc,chist,p0=cguess,sigma=np.sqrt(chist))
-
-    A,B,rcmag,mNrc,smrc = mpar
-    C,D,rccol,cNrc,scrc = cpar
-    
-    df2 = ( # make final cuts using mean and sigma found from fitting
-    df.loc[(df['bp_rp']> rccol - scrc) & (df['bp_rp']< rccol + scrc) & 
-    (df['phot_g_mean_mag']< rcmag + smrc) & (df['phot_g_mean_mag']>rcmag - smrc)]
-    )
-
-    output = {"Params": [xrc,yrc,sxrc,syrc], #input parameters for plotting into a directory
-              "initial cut": df1,
-              "fit cut": df2,
-              "mhist": mhist,
-              "mbc": mbc,
-              "mbe": mbe,
-              "mguess": mguess,
-              "mpar": mpar,
-              "mcov": mcov,
-              "chist": chist,
-              "cbe": cbe,
-              "cbc": cbc,
-              "cguess": cguess,
-              "cpar": cpar,
-              "ccov": ccov,
-              "mag": rcmag,
-              "color": rccol}
-    return output
-
-def redclumpfinder_v2(df): # 1D histogram of magnitude and color in the dataframe to be matched over the fits to check accuracy of fits
-    xrc,yrc,sxrc,syrc = findrc(df)
-
-    df1 = extractrc_v2(df,xrc,yrc,sxrc,syrc)
-
-    mhist,mbe = np.histogram(df1['phot_g_mean_mag'], bins=40)
-    mbc = 0.5*(mbe[0:-1]+mbe[1:])
-    mguess = [(mhist[0]+mhist[-1])/2,0.5,(np.max(mbc)+np.min(mbc))/2,(mhist[0]+mhist[-1])/2,0.3]
-    mpar,mcov = spopt.curve_fit(rcmmodel,mbc,mhist,p0=mguess,sigma=np.sqrt(mhist))
-
-    chist,cbe = np.histogram(df1['bp_rp'], bins=40)
-    cbc = 0.5*(cbe[0:-1]+cbe[1:])
-    cguess = [(chist[0]+chist[-1])/2,0.5,(np.max(cbc)+np.min(cbc))/2,(chist[0]+chist[-1])/2,0.3]
-    cpar,ccov = spopt.curve_fit(rccmodel,cbc,chist,p0=cguess,sigma=np.sqrt(chist))
-
-    A,B,rcmag,mNrc,smrc = mpar
-    C,D,rccol,cNrc,scrc = cpar
-    
-    df2 = ( # make final cuts using mean and sigma found from fitting
-    df.loc[(df['bp_rp']> rccol - scrc) & (df['bp_rp']< rccol + scrc) & 
-    (df['phot_g_mean_mag']< rcmag + smrc) & (df['phot_g_mean_mag']>rcmag - smrc)]
-    )
-
-    output = {"Params": [xrc,yrc,sxrc,syrc], #input parameters for plotting into a directory
-              "initial cut": df1,
-              "fit cut": df2,
-              "mhist": mhist,
-              "mbc": mbc,
-              "mbe": mbe,
-              "mguess": mguess,
-              "mpar": mpar,
-              "mcov": mcov,
-              "chist": chist,
-              "cbe": cbe,
-              "cbc": cbc,
-              "cguess": cguess,
-              "cpar": cpar,
-              "ccov": ccov,
-              "mag": rcmag,
-              "color": rccol}
-    return output
-
-def zeropoint(redclump): # calculate zero point for each star using individual parameters
-    df = redclump["fit cut"]
-    zero_point = zpt.get_zpt(df["phot_g_mean_mag"], df["nu_eff_used_in_astrometry"], df["pseudocolour"], df["ecl_lat"], 
-                df["astrometric_params_solved"])
-    return zero_point
-
-def rczmodel(x,rcz,zNrc,szrc): # function for fitting parallax w/ zero point
-    return zNrc/(np.sqrt(2*np.pi*szrc**2))*np.exp(-0.5*(x-rcz)**2/szrc**2)
-
-def rcpmodel(x,rcp,pNrc,sprc): # function for fitting parallax w/ zero point
-    return pNrc/(np.sqrt(2*np.pi*sprc**2))*np.exp(-0.5*(x-rcp)**2/sprc**2)
-
-def finalfit(redclump, zero_point): # find peak parallax along sightline from fitting distribution of parallax before 
-                                    # and after applying zero point
-    prezp = redclump["fit cut"]
-    prezp["zero point"] = zero_point
-    postzp = prezp["parallax"] - zero_point
-    zp = {"parallax": postzp, "parallax error": prezp["parallax_error"], "zero point": zero_point}
-    zp = pd.DataFrame(data=zp)
-    clipped = sigma_clip(np.array(prezp["parallax"]), sigma=3, maxiters=5)
-    prezp = prezp[~clipped.mask]
-    clipped = sigma_clip(np.array(zp["parallax"]), sigma=3, maxiters=5)
-    zp = zp[~clipped.mask]
-
-    zhist,zbe = np.histogram(zp["parallax"], bins=40)
-    zbc = 0.5*(zbe[0:-1]+zbe[1:])
-    zguess = [np.mean(zp["parallax"]),np.max(zhist)/np.sqrt(2*np.pi*np.std(zp["parallax"])**2),np.std(zp["parallax"])]
-    zpar,zcov = spopt.curve_fit(rczmodel,zbc,zhist,p0=zguess,sigma=np.sqrt(zhist))
-
-    phist,pbe = np.histogram(prezp["parallax"], bins=40)
-    pbc = 0.5*(pbe[0:-1]+pbe[1:])
-    pguess = [np.mean(prezp["parallax"]),np.max(phist)/np.sqrt(2*np.pi*np.std(prezp["parallax"])**2),np.std(prezp["parallax"])]
-    ppar,pcov = spopt.curve_fit(rcpmodel,pbc,phist,p0=pguess,sigma=np.sqrt(phist))
-
-    rcz,zNrc,szrc = zpar
-    rcp,pNrc,sprc = ppar
-
-    fitzp = (zp.loc[(zp["parallax"]> rcz - szrc) & (zp["parallax"]< rcz + szrc)])
-
-    fitprezp = (prezp.loc[(prezp["parallax"]> rcp - sprc) & (prezp["parallax"]< rcp + sprc)])
-
-    output = {"zhist": zhist,
-              "zbc": zbc,
-              "zbe": zbe,
-              "zguess": zguess,
-              "zpar": zpar,
-              "zcov": zcov,
-              "phist": phist,
-              "pbc": pbc,
-              "pbe": pbe,
-              "pguess": pguess,
-              "ppar": ppar,
-              "pcov": pcov,
-              "post-zp pre-fit dataframe": zp,
-              "post-zp dataframe": fitzp,
-              "pre-zp dataframe": fitprezp,
-              "pre-zp pre-fit dataframe": prezp,
-              "zp parallax peak": rcz,
-              "prezp parallax peak": rcp,
-              "zp parallax error": szrc,
-              "prezp parallax error": sprc,
-              "mean error w/ zero point": szrc/np.sqrt(np.diag(zcov)[0]),
-              "mean error w/o zero point": sprc/np.sqrt(np.diag(pcov)[0])}
-    return output
-
-def finalcut(redclump, zero_point): # sigma clip based on parallax to further isolate the bar red clump and find mean parallax
-                                    # for the sightline
-    prezp = redclump["fit cut"]
-    postzp = prezp["parallax"] - zero_point
-    zp = {"parallax": postzp, "parallax error": prezp["parallax_error"]}
-    # need to properly save parallax error here before sigma clipping so that the associated values for each
-    # star stay properly associated after sigma clipping, zero point and pre-zp sigma clipping will not 
-    # necessarily clip the same stars
-
-    zp = pd.DataFrame(data=zp)
-    clipped = sigma_clip(np.array(prezp["parallax"]), sigma=3, maxiters=5)
-    prezp = prezp[~clipped.mask]
-    clipped = sigma_clip(np.array(zp["parallax"]), sigma=3, maxiters=5)
-    zp = zp[~clipped.mask]
-    zparerr = 1/zp["parallax error"]**2
-    zparerrmean = np.sqrt(1/np.sum(zparerr))
-    zparmean = np.sum(zparerr*zp["parallax"]/np.sum(zparerr))
-    prezparerr = 1/prezp["parallax_error"]**2
-    prezparerrmean = np.sqrt(1/np.sum(prezparerr))
-    prezparmean = np.sum(prezparerr*prezp["parallax"]/np.sum(prezparerr))
-    output = {"zp parallax mean error": zparerrmean,
-              "zp parallax mean": zparmean,
-              "post-zp dataframe": zp,
-              "pre-zp parallax mean error": prezparerrmean,
-              "pre-zp parallax mean": prezparmean,
-              "pre-zp dataframe": prezp}
-    return output
-
+        try:
+            plot_path2 = f'Plots/mean plots'
+            os.makedirs(plot_path2, exist_ok=True)
+            plotpath2 = Path(plot_path2)
+            meanplot = pd.read_csv(path / f"b_{i:0.4f}_s_{s:0.4f}_good_single_cuts.csv")
+            plot.Dmeanplot(meanplot, Al=Al, b=i, plotpath=plotpath2, s=s)
+            #print("Finished", f'{i:0.4f}')
+        except:
+            print(f"nothing to plot for (b = {i:0.4f}, s = {s:0.4f}")
+            continue
+    TotalGood_Single
+    TotalGood_Double
+    TotalBad
+    TotalGood_Single.to_csv(f'Gaia_Data/Total_Good_Single_Fits_s_{s:0.4f}')
+    TotalGood_Double.to_csv(f'Gaia_Data/Total_Good_Double_Fits_s_{s:0.4f}')
+    TotalBad.to_csv(f'Gaia_Data/Total_Bad_Fits_s_{s:0.4f}')
+    plot_path3 = f'Plots'
+    os.makedirs(plot_path3, exist_ok=True)
+    plotpath3 = Path(plot_path3)
+    plot.Dtotalplot(TotalGood_Single,plotpath=plotpath3, s=s)
+    print(f"Percent bad sightlines for sightline size {s:0.4f}:", len(TotalBad["Mean Parallax"])/(len(b)*len(Al))*100, "%")
