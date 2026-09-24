@@ -1,13 +1,11 @@
-import astropy.units as u # type: ignore
 import pandas as pd # type: ignore
-import matplotlib.pyplot as plt # type: ignore
 import numpy as np
 from astropy.stats import sigma_clip # type: ignore
 import scipy.optimize as spopt # type: ignore
 from sklearn.cluster import KMeans # type: ignore
-from bar_parallax_analytic_model import parallax_model
 from scipy import integrate
 from astropy.stats import knuth_bin_width
+from scipy import stats
 
 def findrc(df): # automate finding the RC from original CMD using a 2D histogram that locates two maxima, 
                 # then assign the top right maxima as RC
@@ -42,7 +40,7 @@ def extractrc_v1(df,xrc,yrc,sxrc,syrc): # make initial cuts from original datafr
     )
     return df1
 
-def extractrc_v2(df,xrc,yrc,sxrc,syrc): # make initial cuts from original dataframe using coordinates and spread from histogram
+def extractrc_v2(df,xrc,yrc,sxrc,syrc): # make initial cuts from original dataframe using coordinates and spread from histogram if v1 doesn't capture the clump and surrounding stars well enough to form modified gaussian distributions in the redclumpfinder
     df1 = (
         df.loc[(df['bp_rp']>xrc-0.8*sxrc) & (df['bp_rp']<xrc+1.3*sxrc) & (df['phot_g_mean_mag']>yrc-syrc) 
                & (df['phot_g_mean_mag']<yrc+1.6*syrc)])
@@ -76,13 +74,14 @@ def redclumpfinder_v1(df): # 1D histogram of magnitude and color in the datafram
     bounds = ([-np.inf,-np.inf,14,0,0],[np.inf,np.inf,19,1000,1.5])
     mpar,mcov = spopt.curve_fit(rcmmodel,mbc,mhist,p0=mguess,sigma=np.sqrt(mhist+0.5),absolute_sigma=True, bounds = bounds)
 
+    A,B,rcmag,mNrc,smrc = mpar
+
     chist,cbe = np.histogram(df1['bp_rp'], bins=cbin_edges)
     cbc = 0.5*(cbe[0:-1]+cbe[1:])
     cguess = [(chist[0]+chist[-1])/2,0.5,(np.max(cbc)+np.min(cbc))/2,(chist[0]+chist[-1])/2,0.3]
-    bounds = ([-np.inf,-np.inf,0,0,0],[np.inf,np.inf,4,1000,1.5])
-    cpar,ccov = spopt.curve_fit(rccmodel,cbc,chist,p0=cguess,sigma=np.sqrt(chist+0.5),absolute_sigma=True, bounds=bounds)
+    #bounds = ([-np.inf,-np.inf,0,0,0],[np.inf,np.inf,4,1000,1.5])
+    cpar,ccov = spopt.curve_fit(rccmodel,cbc,chist,p0=cguess,sigma=np.sqrt(chist+0.5),absolute_sigma=True)#, bounds=bounds)
 
-    A,B,rcmag,mNrc,smrc = mpar
     C,D,rccol,cNrc,scrc = cpar
 
     def Maggaussian(x,rcmag=rcmag,mNrc=mNrc,smrc=smrc):
@@ -120,6 +119,7 @@ def redclumpfinder_v1(df): # 1D histogram of magnitude and color in the datafram
     output = {"Params": [xrc,yrc,sxrc,syrc], #input parameters for plotting into a directory
               "initial cut": df1,
               "fit cut": df2,
+              "mag bins": mbe,
               "mhist": mhist,
               "mbc": mbc,
               "mbe": mbe,
@@ -158,13 +158,14 @@ def redclumpfinder_v2(df): # 1D histogram of magnitude and color in the datafram
     bounds = ([-np.inf,-np.inf,14,0,0],[np.inf,np.inf,19,1000,1.5])
     mpar,mcov = spopt.curve_fit(rcmmodel,mbc,mhist,p0=mguess,sigma=np.sqrt(mhist+0.5),absolute_sigma=True, bounds = bounds)
 
+    A,B,rcmag,mNrc,smrc = mpar
+
     chist,cbe = np.histogram(df1['bp_rp'], bins=cbin_edges)
     cbc = 0.5*(cbe[0:-1]+cbe[1:])
     cguess = [(chist[0]+chist[-1])/2,0.5,(np.max(cbc)+np.min(cbc))/2,(chist[0]+chist[-1])/2,0.3]
     bounds = ([-np.inf,-np.inf,0,0,0],[np.inf,np.inf,4,1000,1.5])
     cpar,ccov = spopt.curve_fit(rccmodel,cbc,chist,p0=cguess,sigma=np.sqrt(chist+0.5),absolute_sigma=True, bounds=bounds)
 
-    A,B,rcmag,mNrc,smrc = mpar
     C,D,rccol,cNrc,scrc = cpar
 
     def Maggaussian(x,rcmag=rcmag,mNrc=mNrc,smrc=smrc):
@@ -229,7 +230,7 @@ def redclumpfinder_v2(df): # 1D histogram of magnitude and color in the datafram
 def rcpmodel(x,rcp,pNrc,sprc): # function for fitting parallax w/o zero point
     return pNrc/(np.sqrt(2*np.pi*sprc**2))*np.exp(-0.5*(x-rcp)**2/sprc**2)
 
-def zeropoint(redclump):
+def zeropoint0(redclump):
     df = redclump["fit cut"]
     G = df["phot_g_mean_mag"]
     C = df["bp_rp"]
@@ -275,31 +276,79 @@ def zeropoint(redclump):
 
     return zeropoint
 
+def zeropoint(redclump,level=0):
+    df = redclump["fit cut"]
+    G = df["phot_g_mean_mag"]
+    C = df["bp_rp"]
+    P = df["parallax"]
+    Gref = 20.0
+    Cref = 0.8
+    Groen2021data = pd.read_csv(f'Model_3{level}.csv')
+    level = level
+    pixel = round(df["source_id"]/(2**35 * 4**(12-level))).astype(int)
+    H = Groen2021data["PZPO"].reindex(pixel).values
+    E = Groen2021data["error"].reindex(pixel).values
+    N = Groen2021data["N"].reindex(pixel).values
+
+    zeropoint = pd.DataFrame(index=df.index)
+    corr = np.zeros(len(df))
+
+    mask1 = G >= 20.0
+    corr[mask1] = H[mask1] - .016*(G[mask1]-Gref) - 0.0035*(C[mask1]-Cref)
+
+    mask2 = (G < 20.0) & (G >= 19.9)
+    corr[mask2] = H[mask2] - 0.0035*(C[mask2]-Cref)
+
+    mask3 = (G < 19.9) & (G >= 17)
+    corr[mask3] = H[mask3] + .006*(G[mask3]-19.9) - 0.0035*(C[mask3]-Cref)
+
+    mask4 = (G < 17) & (G >= 16.45)
+    corr[mask4] = H[mask4] + .006*(G[mask4]-19.9)
+
+    mask5 = (G < 16.45) & (G >= 13.218)
+    corr[mask5] = H[mask5] + .00178*(G[mask5]-13.265) - 0.026372
+
+    mask6 = (G < 13.218) & (G >= 12.761)
+    corr[mask6] = H[mask6] - .042*(G[mask6]-12.755) - 0.007823
+
+    zeropoint["Parallax"] = P - corr
+    zeropoint["Correction"] = corr
+    zeropoint["Error"] = np.sqrt(E**2 + 0.001**2 + 0.0027**2)
+    zeropoint["logN"] = np.log10(N)
+    zeropoint["pixel"] = pixel
+
+    maskN = zeropoint["logN"] >= 1.602059991
+    zeropoint = zeropoint[maskN]
+
+    return zeropoint
+
 def parallax(redclump,zeropoint): # find peak parallax along sightline from fitting distribution of parallax before 
                                     # and after applying zero point
     fitcut = redclump["fit cut"]
     zeropoint = zeropoint
-    df = {"parallax": zeropoint["Parallax"], "parallax error": fitcut["parallax_error"], "zp error": zeropoint["Error"],
-             "zp correction": zeropoint["Correction"], "bp_rp": fitcut["bp_rp"], "phot_g_mean_mag": fitcut["phot_g_mean_mag"]}
+    df = {"parallax": zeropoint["Parallax"], "parallax error": fitcut["parallax_error"], "zp error": zeropoint["Error"], 
+          "quadrature": np.sqrt(fitcut["parallax_error"]**2 + zeropoint["Error"]**2), "zp correction": zeropoint["Correction"], 
+          "bp_rp": fitcut["bp_rp"], "phot_g_mean_mag": fitcut["phot_g_mean_mag"]}
+    preclipcount = len(df["parallax"])
     df = pd.DataFrame(data=df)
-    clipped = sigma_clip(np.array(df["parallax"]), sigma=3, maxiters=5)
+    clipped = sigma_clip(np.array(df["parallax"]), sigma=2, maxiters=5)
     df = df[~clipped.mask]
+    clip_fraction = len(df["parallax"])/preclipcount
 
-    pbin_width, pbin_edges = knuth_bin_width(df["parallax"], return_bins=True)
-
-    phist,pbe = np.histogram(df["parallax"], bins=pbin_edges)
+    phist,pbe = np.histogram(df["parallax"], bins='auto')
     pbc = 0.5*(pbe[0:-1]+pbe[1:])
-    mask = phist > 0.25*np.max(phist)
-    phist = phist[mask]
-    pbc = pbc[mask]
     pguess = [np.mean(df["parallax"]),np.max(phist)/np.sqrt(2*np.pi*np.std(df["parallax"])**2),np.std(df["parallax"])]
     ppar,pcov = spopt.curve_fit(rcpmodel,pbc,phist,p0=pguess,sigma=np.sqrt(phist+0.5),absolute_sigma=True)
+    #skew = stats.skew(df["parallax"], nan_policy='omit')
 
     rcp,pNrc,sprc = ppar
 
     fit = (df.loc[(df["parallax"]> rcp - sprc) & (df["parallax"]< rcp + sprc)])
 
-    output = {"phist": phist,
+    index = np.argmax(phist)
+
+    output = {
+              "phist": phist,
               "pbc": pbc,
               "pbe": pbe,
               "pguess": pguess,
@@ -307,10 +356,16 @@ def parallax(redclump,zeropoint): # find peak parallax along sightline from fitt
               "pcov": pcov,
               "dataframe": fit,
               "pre-fit dataframe": df,
-              "parallax peak": rcp,
+              "parallax mean": rcp,
+              "parallax weighted mean": np.average(df["parallax"], weights = 1/df["parallax error"]**2),
+              "parallax median": np.median(df["parallax"]),
+              "parallax mode": pbc[index],
               "parallax sigma": sprc,
               "Number at parallax mean": pNrc,
-              "mean error": np.sqrt(np.diag(pcov)[0])}
+              "mean error": np.sqrt(np.diag(pcov)[0]),
+              "clip fraction": clip_fraction,
+              #"skew": skew
+              }
     return output
 
 def doubleclumpmodel(x,A,B,rcmag1,mNrc1,smrc1,rcmag2,mNrc2,smrc2): # function for fitting magnitude according to initial cut
@@ -458,7 +513,7 @@ def doublepmodel(x,rcp1,pNrc1,sprc1,rcp2,pNrc2,sprc2): # function for fitting pa
     return pNrc1/(np.sqrt(2*np.pi*sprc1**2))*np.exp(-0.5*(x-rcp1)**2/sprc1**2) + \
             pNrc2/(np.sqrt(2*np.pi*sprc2**2))*np.exp(-0.5*(x-rcp2)**2/sprc2**2)
 
-def doublefinalfit(redclump,zeropoint): # find peak parallax along sightline from fitting distribution of parallax before 
+def doubleparallax(redclump,zeropoint): # find peak parallax along sightline from fitting distribution of parallax before 
                                     # and after applying zero point
     fitcut = redclump["fit cut"]
     zeropoint = zeropoint
@@ -468,9 +523,9 @@ def doublefinalfit(redclump,zeropoint): # find peak parallax along sightline fro
     clipped = sigma_clip(np.array(df["parallax"]), sigma=3, maxiters=5)
     df = df[~clipped.mask]
 
-    pbin_width, pbin_edges = knuth_bin_width(df["parallax"], return_bins=True)
+    #pbin_width, pbin_edges = knuth_bin_width(df["parallax"], return_bins=True)
 
-    phist,pbe = np.histogram(df["parallax"], bins=pbin_edges)
+    phist,pbe = np.histogram(df["parallax"], bins='auto')
     pbc = 0.5*(pbe[0:-1]+pbe[1:])
     mask = phist > 0.25*np.max(phist)
     phist = phist[mask]
