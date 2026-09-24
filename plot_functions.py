@@ -47,7 +47,7 @@ def CMD(df1,df2,df3,plotpath=None,l=2.0,b=2.0):
     plt.clf()
     plt.close()
 
-def SRedClumpPlot(redclump, parallax, df, doubleclump, doubleparallax, plotpath=None, l=None, b=None,  s= 0.33): # plotting routines
+def SRedClumpPlot(redclump, parallax, df, doubleclump, plotpath=None, l=None, b=None,  s=0.33, q=None): # plotting routines
     
     xrc,yrc,sxrc,syrc = redclump["Params"]
     initial = redclump["initial cut"]
@@ -62,10 +62,14 @@ def SRedClumpPlot(redclump, parallax, df, doubleclump, doubleparallax, plotpath=
     pbc = parallax["pbc"]
     final_data = parallax["dataframe"]
 
+    E,F,rcmag1,mNrc1,smrc1,rcmag2,mNrc2,smrc2 = doubleclump["mpar"]
+    dmbc = doubleclump["mbc"]
+    dmhist = doubleclump["mhist"]
+
     fig = plt.figure(figsize=(20,20))
 
     #2d histogram
-    ax = fig.add_subplot(4,3,1)
+    ax = fig.add_subplot(3,3,1)
     ax.hist2d(df['bp_rp'],df['phot_g_mean_mag'],bins = 50)
     ax.scatter(xrc,yrc)
     ax.axvline(xrc-0.55*sxrc)
@@ -76,42 +80,63 @@ def SRedClumpPlot(redclump, parallax, df, doubleclump, doubleparallax, plotpath=
     ax.set_ylim(20.5,14)
     ax.set_xlabel('Color')
     ax.set_ylabel('G')
-    ax.set_title('2D Histogram')
+    ax.set_title(f'2D Histogram for l_{l:0.2f}')
 
     # initial CMD cut plotted over original CMD
-    ax = fig.add_subplot(4,3,2)
-    ax.scatter(df['bp_rp'],df['phot_g_mean_mag'],s=0.5, alpha = 0.2) #original data
-    ax.scatter(initial['bp_rp'],initial['phot_g_mean_mag'],s=0.5, c='yellow', alpha=0.5) # data after guesses
-    ax.set_ylim(20.5,14)
-    ax.set_xlim(0.5,4)
-    ax.set_xlabel('Color')
-    ax.set_ylabel('G')
-    ax.set_title('Color-Magnitude Diagram')
+    #ax = fig.add_subplot(3,3,2)
+    #ax.scatter(df['bp_rp'],df['phot_g_mean_mag'],s=0.5, alpha = 0.2) #original data
+    #ax.scatter(initial['bp_rp'],initial['phot_g_mean_mag'],s=0.5, c='yellow', alpha=0.5) # data after guesses
+    #ax.set_ylim(20.5,14)
+    #ax.set_xlim(0.5,4)
+    #ax.set_xlabel('Color')
+    #ax.set_ylabel('G')
+    #ax.set_title('Color-Magnitude Diagram')
 
     # single clump magnitude histogram
-    ax = fig.add_subplot(4,3,3)
+    ax = fig.add_subplot(2,3,2)
     ax.errorbar(mbc,mhist,yerr=np.sqrt(mhist),fmt='o')
     G = np.linspace(min(initial['phot_g_mean_mag']),max(initial['phot_g_mean_mag']),num=200)
     NG = fit.rcmmodel(G,A,B,rcmag,mNrc,smrc)
     ax.plot(G,NG,label='Fitted')
     NGg = fit.gaussian(G,rcmag,mNrc,smrc)
-    ax.plot(G,NGg, label = 'Gaussian')
+    ax.plot(G,NGg, label = f'Gaussian = {redclump["Magnitude Distinctness"]:0.2f}')
     NGe = fit.exponential(G,A,B,rcmag)
     ax.plot(G,NGe, label = 'Exponential')
     ax.axvline(rcmag, color ='k', label= 'magpeak')
     ax.axvline(rcmag+smrc, color ='gray', linestyle = '--')
     ax.axvline(rcmag-smrc, color ='gray', linestyle = '--')
     ax.legend()
-    ax.set_title('Magnitude Histogram')
+    ax.set_title('Single Clump G Histogram')
+
+    # double clump magnitude histogram
+    ax = fig.add_subplot(2,3,3)
+    ax.errorbar(dmbc,dmhist,yerr=np.sqrt(dmhist),fmt='o')
+    G = np.linspace(min(initial['phot_g_mean_mag']),max(initial['phot_g_mean_mag']),num=200)
+    NG = fit.doubleclumpmodel(G,E,F,rcmag1,mNrc1,smrc1,rcmag2,mNrc2,smrc2)
+    ax.plot(G,NG,label='Fitted')
+    NGg1 = fit.gaussian(G,rcmag1,mNrc1,smrc1)
+    ax.plot(G,NGg1, label = f'RC 1 D = {doubleclump["clump 1 distinctness"]:0.2f}')
+    NGg2 = fit.gaussian(G,rcmag2,mNrc2,smrc2)
+    ax.plot(G,NGg2, label = f'RC 2 D = {doubleclump["clump 2 distinctness"]:0.2f}')
+    NGe1 = fit.exponential(G,E,F,rcmag1)
+    ax.plot(G,NGe1, label = 'Exponential')
+    ax.axvline(rcmag1, color ='gray', label= 'magpeak 1')
+    ax.axvline(rcmag1+smrc1, color ='gray', linestyle = '--', label = f'\u03C3\u1D63\u2081={smrc1:0.2f}')
+    ax.axvline(rcmag1-smrc1, color ='gray', linestyle = '--')
+    ax.axvline(rcmag2, color ='b', label= 'magpeak 2')
+    ax.axvline(rcmag2+smrc2, color ='b', linestyle = '--', label = f'\u03C3\u1D63\u2082={smrc2:0.2f}')
+    ax.axvline(rcmag2-smrc2, color ='b', linestyle = '--')
+    ax.legend()
+    ax.set_title('Doubel Clump G Histogram')
 
     # color histogram
-    ax = fig.add_subplot(4,3,5)
+    ax = fig.add_subplot(2,3,4)
     ax.errorbar(cbc,chist,yerr=np.sqrt(chist),fmt='o')
     Col = np.linspace(min(initial['bp_rp']),max(initial['bp_rp']),num=200)
     NC = fit.rccmodel(Col,C,D,rccol,cNrc,scrc)
     ax.plot(Col,NC,label='Fitted')
     NCg = fit.gaussian(Col,rccol,cNrc,scrc)
-    ax.plot(Col,NCg, label = 'Gaussian')
+    ax.plot(Col,NCg, label = f'Gaussian = {redclump["Color Distinctness"]:0.2f}')
     NCe = fit.exponential(Col,C,D,rccol)
     ax.plot(Col,NCe, label = 'Exponential')
     ax.axvline(rccol, color ='k', label= 'magpeak')
@@ -120,8 +145,18 @@ def SRedClumpPlot(redclump, parallax, df, doubleclump, doubleparallax, plotpath=
     ax.legend()
     ax.set_title('Color Histogram')
 
+    # final RC cut plotted over original CMD
+    ax = fig.add_subplot(2,3,5)
+    ax.scatter(df['bp_rp'],df['phot_g_mean_mag'],s=0.5, alpha = 0.2)
+    ax.scatter(final_data['bp_rp'],final_data['phot_g_mean_mag'],s=0.5, alpha=0.75, cmap='viridis')
+    ax.set_xlabel('Color')
+    ax.set_ylabel('G')
+    ax.set_ylim(20.5,14)
+    ax.set_xlim(.5,4)
+    ax.set_title('Final Fit Color-Magnitude Selection')
+
     # single clump parallax distribution of final cut
-    ax = fig.add_subplot(4,3,6)
+    ax = fig.add_subplot(2,3,6)
     ax.errorbar(pbc,phist,yerr=np.sqrt(phist),fmt='o')
     P = np.linspace(-1,1,num=200)
     NP = fit.rcpmodel(P,rcp,pNrc,sprc)
@@ -131,43 +166,16 @@ def SRedClumpPlot(redclump, parallax, df, doubleclump, doubleparallax, plotpath=
     ax.axvline(rcp-sprc, color ='gray', linestyle = '--')
     ax.axvline(0.12195, color ='b', label = 'Galactic Center')
     ax.legend()
+    ax.set_xlim(-0.25,0.5)
     ax.set_title('Single Clump Parallax Histogram')
 
-    # final RC cut plotted over original CMD
-    ax = fig.add_subplot(4,3,8)
-    ax.scatter(df['bp_rp'],df['phot_g_mean_mag'],s=0.5, alpha = 0.2)
-    ax.scatter(final_data['bp_rp'],final_data['phot_g_mean_mag'],s=0.5, alpha=0.75, cmap='viridis')
-    ax.set_xlabel('Color')
-    ax.set_ylabel('G')
-    ax.set_ylim(20.5,14)
-    ax.set_xlim(.5,4)
-    ax.set_title('Final Fit Color-Magnitude Selection')
-
-    # magnitude vs. parallax
-    ax = fig.add_subplot(4,3,9)
-    ax.scatter(final_data["phot_g_mean_mag"], final_data["parallax"], s=2, alpha = 0.5)
-    ax.set_xlabel('Magnitude')
-    ax.set_ylabel('Parallax')
-    ax.axhline(rcp, color ='b', label = 'single clump parallax mean')
-    ax.set_ylim(-0.2,0.4)
-    ax.set_xlim(14,20)
-
-    # color vs. parallax
-    ax = fig.add_subplot(4,3,10)
-    ax.scatter(final_data["bp_rp"],final_data["parallax"], s=2, alpha = 0.5)
-    ax.set_xlabel('Color')
-    ax.set_ylabel('Parallax')
-    ax.axhline(rcp, color ='b', label = 'single clump parallax mean')
-    ax.set_ylim(-0.2,0.4)
-    ax.set_xlim(0.5,4)
-
     plt.tight_layout()
-    plt.savefig(plotpath/f'Plots_l_{l:0.4f}_b_{b:0.4f}_s_{s:0.4f}.jpg')
+    plt.savefig(plotpath/f'Plots_l_{l:0.2f}_q_{q}_b_{b:0.2f}_s_{s:0.2f}.jpg')
     plt.cla()
     plt.clf()
     plt.close()
 
-def SRedClumpPlot_break(redclump, df, doubleclump, plotpath=None, l=None, b=None, s= 0.33): # plotting routines
+def SRedClumpPlot_break(redclump, df, plotpath=None, l=None, b=None, s= 0.33): # plotting routines
     
     xrc,yrc,sxrc,syrc = redclump["Params"]
     initial = redclump["initial cut"]
@@ -281,7 +289,7 @@ def SRedClumpPlot_runtime(redclump, df, plotpath=None, l=None, b=None, s= 0.33):
     plt.clf()
     plt.close()
 
-def SRedClumpPlot_type(redclump, df, doubleclump, plotpath=None, l=None, b=None, s= 0.33): # plotting routines
+def SRedClumpPlot_type(redclump, df, plotpath=None, l=None, b=None, s= 0.33): # plotting routines
     
     xrc,yrc,sxrc,syrc = redclump["Params"]
     initial = redclump["initial cut"]
@@ -358,16 +366,31 @@ def SRedClumpPlot_type(redclump, df, doubleclump, plotpath=None, l=None, b=None,
     plt.clf()
     plt.close()
 
-def Smeanplot(meanplot, Al, b=2.0, plotpath=None, s= 0.33):
-    Longitude = meanplot["Long"]
-    Para = meanplot["Mean Parallax"]
-    Paraerr = meanplot["Mean Parallax Error"]
-    MeanMag = meanplot["Mean Magnitude"]
-    MeanCol = meanplot["Mean Color"]
-    count = meanplot["Count"]
-    modulus = meanplot["Distance Modulus"]
-    fraction = meanplot["Red Clump Fraction"]
-    width = meanplot["Red Clump Width"]
+def Smeanplot(meanplotquarters, meanplotavg, Al, level=0, b=2.0, plotpath=None, s= 0.33):
+    Longitudeq = meanplotquarters["Long"]
+    Paraq = meanplotquarters["Mean Parallax"]
+    Paraerrq = meanplotquarters["Mean Parallax Error"]
+    countq = meanplotquarters["RC Count"]
+    modulusq = meanplotquarters["Distance Modulus"]
+    fractionq = meanplotquarters["Red Clump Fraction"]
+    widthq = meanplotquarters["Red Clump Width"]
+    Longitudea = meanplotavg["Long"]
+    Paraa = meanplotavg["Mean Parallax"]
+    Paraerra = meanplotavg["Mean Parallax Error"]
+    Paramed = meanplotavg["Parallax Median"]
+    counta = meanplotavg["RC Count"]
+    Paramederr = meanplotavg["Parallax Dispersion"]/np.sqrt(counta)*1.2533
+    ParaWm = meanplotavg["Weighted Mean Parallax"]
+    modulusa = meanplotavg["Distance Modulus"]
+    fractiona = meanplotavg["Red Clump Fraction"]
+    widtha = meanplotavg["Red Clump Width"]
+    pixel = meanplotquarters["Most Common Pixel"]
+    MeanMagA = meanplotavg["Mean Magnitude"]
+    MeanColA = meanplotavg["Mean Color"]
+    QlogN = meanplotquarters["Log of Zeropoint Count"]
+    AlogN = meanplotavg["Log of Zeropoint Count"]
+
+    amodulus = -5*np.log10(Paraa)
 
     #for comparison with analytic model
     # Test with different bar structure parameters
@@ -382,19 +405,9 @@ def Smeanplot(meanplot, Al, b=2.0, plotpath=None, s= 0.33):
     bar_angles = [0, 15, 20, 25, 29.4, 35, 40, 45]  # Different bar angles to compare
     colors = plt.cm.viridis(np.linspace(0, 1, len(bar_angles)))
 
-    def quadratic(L,a,e,c,):
-        return a*L**2 + e*L + c
-
-    # best fit
-    pparam, pparam_cov = spopt.curve_fit(quadratic, Longitude, Para, sigma=Paraerr, absolute_sigma = True)
-    a,e,c, = pparam
-    a_err, e_err, c_err = np.sqrt(np.diag(pparam_cov))
-
-    Residuals = quadratic(Longitude, *pparam) - Para
-
-    # generating plots; first is from analytic model
-    fig = plt.figure(figsize=(15,15))
-    ax = fig.add_subplot(3,2,1)
+    # generating plots; first is from analytic model and Gaia data quarters w/ errors
+    fig = plt.figure(figsize=(23,15))
+    ax = fig.add_subplot(3,4,1)
     for i, bar_angle in enumerate(bar_angles):
         Aparallax = []
 
@@ -407,79 +420,258 @@ def Smeanplot(meanplot, Al, b=2.0, plotpath=None, s= 0.33):
             
         ax.plot(Al, Aparallax, 'o-', 
                 color=colors[i], 
-                label=f'{bar_angle}°' if bar_angle != 29.4 else f'{bar_angle}° (default)',
+                #label=f'{bar_angle}°' if bar_angle != 29.4 else f'{bar_angle}° (default)',
                 linewidth=2, markersize=4, alpha=0.8)
 
     plt.grid(True, alpha=0.3)
-    plt.legend(fontsize=9, title='Bar Angle', bbox_to_anchor=(0.97, 1), loc='upper left', borderaxespad=0.)
+    #plt.legend(fontsize=9, title='Bar Angle', bbox_to_anchor=(0.97, 1), loc='upper left', borderaxespad=0.)
     
-    plt.ylim(0.08,0.20)
-
-    # plots of Gaia data means w/ errors
-    ax.errorbar(Longitude, Para, fmt = 'o', markersize=5, 
-                yerr = Paraerr)
-    #ax.errorbar(Longitude, final_dataPara, fmt = 'o', markersize=5, 
-    #             yerr = final_dataParaerr)
-    # quadratic regression
-    model = np.poly1d(np.polyfit(Longitude, Para, 4))
-    coefficients = np.polyfit(Longitude, Para, 4)
-    polyline = np.arange(Longitude.min(),Longitude.max(),s)
-    ax.plot(polyline, model(polyline), '--', color = 'b')
-    ax.set_ylabel('Parallax')
+    plt.ylim(0.1,0.17)
+    sc = ax.scatter(Longitudeq, Paraq, c = QlogN)
+    ax.errorbar(Longitudeq, Paraq, fmt = 'o', markersize=5, yerr = Paraerrq)
+    fig.colorbar(sc, ax=ax, label="logN", orientation = 'horizontal')
+    ax.set_ylabel('Mean Parallax')
     ax.set_xlabel('Longitude')
-    ax.set_xlim(13,-13)
-    ax.set_title(f'Mean Parallax vs. Galactic Longitude b={b:0.2f}')
+    ax.set_xlim(10,-10)
+    ax.set_title(f'Mean Parallax Quarters vs. Galactic Longitude b={b:0.2f}')
 
-    # residuals plots
-    ax = fig.add_subplot(3,2,2)
-    ax.scatter(Longitude,fraction)
+    # plots of Gaia data avgs w/ errors
+    ax = fig.add_subplot(3,4,2)
+    for i, bar_angle in enumerate(bar_angles):
+        Aparallax = []
+
+        for l in Al:
+            try:
+                parallax = bar_parallax3D(l, b, bar_angle, **custom_params)
+                Aparallax.append(parallax if parallax else np.nan)
+            except:
+                Aparallax.append(np.nan)
+            
+        ax.plot(Al, Aparallax, 'o-', 
+                color=colors[i],
+                linewidth=2, markersize=4, alpha=0.8)
+
+    plt.grid(True, alpha=0.3)
+    #plt.legend(fontsize=9, title='Bar Angle', bbox_to_anchor=(0.97, 1), loc='upper left', borderaxespad=0.)
+    
+    plt.ylim(0.1,0.17)
+    sc = ax.scatter(Longitudea, Paraa, c = AlogN)
+    ax.errorbar(Longitudea, Paraa, fmt = 'o', markersize=5, yerr = Paraerra)
+    fig.colorbar(sc, ax=ax, label="logN", orientation = 'horizontal')
+    model = np.poly1d(np.polyfit(Longitudea, Paraa, 2))
+    polyline = np.arange(Longitudea.min(),Longitudea.max(),s)
+    ax.plot(polyline, model(polyline), '--', color = 'b')
+    ax.set_ylabel('Avg. Mean Parallax')
+    ax.set_xlabel('Longitude')
+    ax.set_xlim(10,-10)
+    ax.set_title(f'Avg. Mean Parallax vs. Galactic Longitude b={b:0.2f}')
+
+    # plots of Gaia data avgs w/ errors
+    ax = fig.add_subplot(3,4,3)
+    for i, bar_angle in enumerate(bar_angles):
+        Aparallax = []
+
+        for l in Al:
+            try:
+                parallax = bar_parallax3D(l, b, bar_angle, **custom_params)
+                Aparallax.append(parallax if parallax else np.nan)
+            except:
+                Aparallax.append(np.nan)
+            
+        ax.plot(Al, Aparallax, 'o-', 
+                color=colors[i],
+                linewidth=2, markersize=4, alpha=0.8)
+
+    plt.grid(True, alpha=0.3)
+    #plt.legend(fontsize=9, title='Bar Angle', bbox_to_anchor=(0.97, 1), loc='upper left', borderaxespad=0.)
+    
+    plt.ylim(0.1,0.17)
+    sc = ax.scatter(Longitudea, Paramed, c = AlogN)
+    ax.errorbar(Longitudea, Paramed, fmt = 'o', markersize=5, yerr = Paramederr)
+    fig.colorbar(sc, ax=ax, label="logN", orientation = 'horizontal')
+    model = np.poly1d(np.polyfit(Longitudea, Paramed, 2))
+    polyline = np.arange(Longitudea.min(),Longitudea.max(),s)
+    ax.plot(polyline, model(polyline), '--', color = 'b')
+    ax.set_ylabel('Median Parallax')
+    ax.set_xlabel('Longitude')
+    ax.set_xlim(10,-10)
+    ax.set_title(f'Median Parallax vs. Galactic Longitude b={b:0.2f}')
+
+    # plots of Gaia data avgs w/ errors
+    ax = fig.add_subplot(3,4,4)
+    for i, bar_angle in enumerate(bar_angles):
+        Aparallax = []
+
+        for l in Al:
+            try:
+                parallax = bar_parallax3D(l, b, bar_angle, **custom_params)
+                Aparallax.append(parallax if parallax else np.nan)
+            except:
+                Aparallax.append(np.nan)
+            
+        ax.plot(Al, Aparallax, 'o-', 
+                color=colors[i],
+                linewidth=2, markersize=4, alpha=0.8)
+
+    plt.grid(True, alpha=0.3)
+    #plt.legend(fontsize=9, title='Bar Angle', bbox_to_anchor=(0.97, 1), loc='upper left', borderaxespad=0.)
+    
+    plt.ylim(0.1,0.17)
+    sc = ax.scatter(Longitudea, ParaWm, c = AlogN)
+    ax.errorbar(Longitudea, ParaWm, fmt = 'o', markersize=5, yerr = Paraerra)
+    fig.colorbar(sc, ax=ax, label="logN", orientation = 'horizontal')
+    model = np.poly1d(np.polyfit(Longitudea, ParaWm, 2))
+    polyline = np.arange(Longitudea.min(),Longitudea.max(),s)
+    ax.plot(polyline, model(polyline), '--', color = 'b')
+    ax.set_ylabel('Weighted Mean Parallax')
+    ax.set_xlabel('Longitude')
+    ax.set_xlim(10,-10)
+    ax.set_title(f'Weighted Mean Parallax vs. Galactic Longitude b={b:0.2f}')
+
+    # RC Fraction vs. Longitude
+    ax = fig.add_subplot(3,4,5)
+    ax.scatter(Longitudeq,fractionq, alpha = 0.25)
+    ax.scatter(Longitudea,fractiona)
     ax.set_xlabel('Longitude')
     ax.set_ylabel('RC Fraction')
     ax.set_title('RC Fraction vs. Longitude')
+    plt.grid(True, alpha=0.3)
 
-    ax = fig.add_subplot(3,2,3)
-    ax.scatter(Longitude,width)
-    ax.set_xlabel('Longitude')
-    ax.set_ylabel('RC Width')
-    ax.set_title('RC Width vs. Longitude')
-
-    ax = fig.add_subplot(3,2,4)
-    ax.scatter(Para,Residuals)
-    ax.set_xlabel('Parallax')
-    ax.set_ylabel('Residuals')
-    ax.set_title('Residuals vs. Parallax')
-
-    # count vs. longitude
-    ax = fig.add_subplot(3,2,5)
-    ax.scatter(Longitude, count)
+    # Count vs. Longitude
+    ax = fig.add_subplot(3,4,6)
+    ax.scatter(Longitudeq, countq, alpha = 0.25)
+    ax.scatter(Longitudea, counta)
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Count of RC Stars")
     ax.set_title("Count of RC Stars vs. Longitude")
+    plt.grid(True, alpha=0.3)
 
-    # distance modulus vs longitude
-    ax = fig.add_subplot(3,2,6)
-    ax.scatter(Longitude,modulus)
+    # Distance Modulus vs Longitude
+    ax = fig.add_subplot(3,4,7)
+    ax.scatter(Longitudeq,modulusq, alpha = 0.25)
+    ax.scatter(Longitudea,modulusa)
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Distance Modulus")
     ax.set_title("Distance Modulus vs. Longitude")
+    plt.grid(True, alpha=0.3)
 
-    plt.savefig(plotpath / f'mean_b_{b:0.2f}_s_{s:0.4f}.jpg')
+    # Distance Modulus vs Parallax
+    ax = fig.add_subplot(3,4,8)
+    ax.scatter(Paraq,modulusq, alpha = 0.25)
+    ax.scatter(Paraa,modulusa)
+    ax.set_xlabel("Parallax")
+    ax.set_ylabel("Distance Modulus")
+    ax.set_title("Distance Modulus vs. Parallax")
+    plt.grid(True, alpha=0.3)
+
+    #Distance Modulus vs. G-Band Magnitude
+    ax = fig.add_subplot(3,4,9)
+    ax.scatter(MeanMagA,amodulus)
+    model = np.poly1d(np.polyfit(MeanMagA, amodulus, 2))
+    polyline = np.arange(MeanMagA.min(),MeanMagA.max())
+    ax.plot(polyline, model(polyline), '--', color = 'b')
+    ax.set_xlabel("G-Band Magnitude")
+    ax.set_ylabel("Distance Modulus")
+    ax.set_title("Distance Modulus vs. G-Band Magnitude")
+    plt.grid(True, alpha=0.3)
+
+    Extinction = MeanMagA - amodulus
+
+    #Extinction vs. Color
+    ax = fig.add_subplot(3,4,10)
+    ax.scatter(MeanColA,Extinction)
+    ax.set_xlabel("Color")
+    ax.set_ylabel("Extinction")
+    ax.set_title("Extinction vs. Color")
+    plt.grid(True, alpha=0.3)
+
+    #Distance Modulus + Residuals vs. G-Band Magnitude w/ correction
+    #ax = fig.add_subplot(3,4,11)
+    #ax.scatter(MeanMagA,amodulusnew)
+    #ax.set_xlabel("G-Band Magnitude")
+    #ax.set_ylabel("Distance Modulus + Residuals")
+    #ax.set_title("Distance Modulus + Residuals vs. Magnitude")
+    #plt.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(plotpath / f'mean_b_{b:0.2f}_s_{s:0.4f}_level_{level:0.0f}.jpg')
     plt.cla()
     plt.clf()
     plt.close()
 
-def Stotalplot(TotalGood,plotpath=None, s= 0.33):
-    Longitude = TotalGood["Long"]
-    Latitude = TotalGood["Latitude"]
-    MeanMag = TotalGood["Mean Magnitude"]
-    MeanCol = TotalGood["Mean Color"]
-    Number_density = TotalGood["Count"]/0.33
-    modulus = TotalGood["Distance Modulus"]
-    fraction = TotalGood["Red Clump Fraction"]
-    width = TotalGood["Red Clump Width"]
-    mag_sigma = TotalGood["Magnitude Dispersion"]
-    w_sigma = TotalGood["Parallax Dispersion"]
+def DifferencePlots(meanplotavg,Al, level = 0, b=2.0, plotpath = None, s= 0.33):
+    Long = meanplotavg["Long"]
+    ParaMean = meanplotavg["Mean Parallax"]
+    ParaMode = meanplotavg["Parallax Mode"]
+    ParaMedian = meanplotavg["Parallax Median"]
+    ParallaxWMean = meanplotavg["Weighted Mean Parallax"]
+    Dispersion = meanplotavg["Parallax Dispersion"]
+    D1 = ParaMean - ParaMode
+    D2 = ParaMean - ParaMedian
+    D3 = ParaMean - ParallaxWMean
+    logN = meanplotavg["Log of Zeropoint Count"]
+
+    fig = plt.figure(figsize=(15,15))
     
+    ax = fig.add_subplot(3,2,1)
+    ax.scatter(Long,D1)
+    ax.set_ylabel('Mean - Mode')
+    ax.set_xlabel('Longitude')
+    ax.set_title('Mean - Mode vs. Longitude')
+    plt.grid(True, alpha=0.3)
+
+    ax = fig.add_subplot(3,2,2)
+    ax.scatter(Long,D2)
+    ax.set_ylabel('Mean - Median')
+    ax.set_xlabel('Longitude')
+    ax.set_title('Mean - Median vs. Longitude')
+    plt.grid(True, alpha=0.3)
+
+    ax = fig.add_subplot(3,2,3)
+    ax.scatter(Long,D3)
+    ax.set_ylabel('Mean - Weighted Mean')
+    ax.set_xlabel('Longitude')
+    ax.set_title('Mean - Weighted Mean vs. Longitude')
+    plt.grid(True, alpha=0.3)
+
+    ax = fig.add_subplot(3,2,4)
+    sc = ax.scatter(Long, Dispersion, c = logN)
+    ax.scatter(Long, Dispersion)
+    fig.colorbar(sc, ax=ax, label="logN", orientation = 'horizontal')
+    ax.set_ylabel('Parallax Dispersion')
+    ax.set_xlabel('Longitude')
+    ax.set_title('Parallax Dispersion vs. Longitude')
+    plt.grid(True, alpha=0.3)
+
+    ax = fig.add_subplot(3,2,5)
+    sc = ax.scatter(ParaMean, Dispersion, c = logN)
+    ax.scatter(ParaMean, Dispersion)
+    fig.colorbar(sc, ax=ax, label="logN", orientation = 'horizontal')
+    ax.set_ylabel('Parallax Dispersion')
+    ax.set_xlabel('Mean Parallax')
+    ax.set_title('Parallax Dispersion vs. Mean Parallax')
+    plt.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(plotpath / f'Parallax Differences b={b:0.2f}_s={s:0.2f}_level={level}.jpg')
+    plt.cla()
+    plt.clf()
+    plt.close()
+
+def Stotalplot(TotalAvg,plotpath=None, s= 0.33):
+    Latitude = TotalAvg["Latitude"]
+    MeanMag = TotalAvg["Mean Magnitude"]
+    MeanCol = TotalAvg["Mean Color"]
+    Number_density = TotalAvg["RC Count"]/0.33
+    w_sigma = TotalAvg["Parallax Dispersion"]
+    Longitude = TotalAvg["Long"]
+    Para = TotalAvg["Mean Parallax"]
+    Paraerr = TotalAvg["Mean Parallax Error"]
+    #count = TotalAvg["RC Count"]
+    modulus = TotalAvg["Distance Modulus"]
+    fraction = TotalAvg["Red Clump Fraction"]
+    width = TotalAvg["Red Clump Width"]
+    pixel = TotalAvg["Most Common Pixel"]
 
     fig = plt.figure(figsize=(20,20))
 
@@ -488,7 +680,6 @@ def Stotalplot(TotalGood,plotpath=None, s= 0.33):
     sc = ax.scatter(Longitude, Number_density, c = Latitude)
     fig.colorbar(sc, ax=ax, label="Latitude")
     ax.set_xlim(10,-10)
-    ax.set_ylim(2,5)
     ax.set_xlabel("Longitude")
     ax.set_ylabel("N_RC/deg^2")
     ax.set_title("Number Density vs. Longitude")
@@ -549,6 +740,26 @@ def Stotalplot(TotalGood,plotpath=None, s= 0.33):
     ax.set_ylabel("Latitude")
     ax.set_title("Parallax dispersion")
 
+    #Pxel number for each sightline
+    ax = fig.add_subplot(3,3,8)
+    sc = ax.scatter(Longitude, Latitude, c = pixel)
+    fig.colorbar(sc, ax=ax, label="pixel")
+    ax.set_xlim(10,-10)
+    ax.set_ylim(-6.1,4.9)
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.set_title("Map of Pixel Index")
+
+    ax = fig.add_subplot(3,3,9)
+    sc = ax.scatter(Longitude,Para)
+    fig.colorbar(sc,ax=ax,label='Latitude')
+    ax.set_xlim(10,-10)
+    ax.set_ylim(0.1,0.17)
+    ax.set_xlabel('Longitude')
+    ax.set_ylabel('Mean Parallax')
+    ax.set_title('Mean Parallax vs. Longtidue')
+
+    plt.tight_layout()
     plt.savefig(plotpath / f'totalplots_s_{s:0.4f}.jpg')
     plt.cla()
     plt.clf()
@@ -978,7 +1189,7 @@ def Dmeanplot(meanplot, Al, b=2.0, plotpath=None, s= 0.33):
     Paraerr = meanplot["Mean Parallax Error"]
     MeanMag = meanplot["Mean Magnitude"]
     MeanCol = meanplot["Mean Color"]
-    count = meanplot["Count"]
+    count = meanplot["RC Count"]
     modulus = meanplot["Distance Modulus"]
     fraction = meanplot["Red Clump Fraction"]
     width = meanplot["Red Clump Width"]
@@ -1087,7 +1298,7 @@ def Dtotalplot(TotalGood,plotpath=None, s= 0.33):
     Latitude = TotalGood["Latitude"]
     MeanMag = TotalGood["Mean Magnitude"]
     MeanCol = TotalGood["Mean Color"]
-    Number_density = TotalGood["Count"]/0.33
+    Number_density = TotalGood["RC Count"]/0.33
     modulus = TotalGood["Distance Modulus"]
     fraction = TotalGood["Red Clump Fraction"]
     width = TotalGood["Red Clump Width"]
